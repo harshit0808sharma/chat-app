@@ -13,8 +13,7 @@ import { toast } from "react-toastify";
 
 
 const Chat = () => {
-    const { userData, chatData, chatUser, setChatUser, setMessageId, messageId, messages, setMessages, visible, setVisible, profileVisible, setProfileVisible } = useContext(AppContext);
-    // const [imageUrl, setImageUrl] = useState(null);
+    const { removeDuplicatesByRId, userData, chatData, setChatData, chatUser, setChatUser, setMessageId, messageId, messages, setMessages, visible, setVisible, profileVisible, setProfileVisible } = useContext(AppContext);
     const [user, setUser] = useState(null);
     const [showSearch, setShowSearch] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -82,61 +81,119 @@ const Chat = () => {
             if (input) {
                 setShowSearch(true);
                 const userRef = collection(db, 'users');
-                const q = query(userRef, where("username", "==", input.toLowerCase()))
+                const q = query(userRef, where("username", "==", input.toLowerCase()));
                 const querySnap = await getDocs(q);
                 if (!querySnap.empty && querySnap.docs[0].id !== userData.id) {
                     let userExist = false;
-                    chatData.map((user) => {
+                    chatData.forEach((user) => {
                         if (user.rId === querySnap.docs[0].data().id) {
                             userExist = true;
                         }
-                    })
+                    });
                     if (!userExist) {
                         setUser(querySnap.docs[0].data());
+                    } else {
+                        setUser(null);
                     }
                 } else {
                     setUser(null);
                 }
             } else {
+                // Clear state when input is empty
                 setShowSearch(false);
+                setUser(null); // ✅ clear the user here
             }
         } catch (error) {
             toast.error(error.message);
         }
-    }
+    };
+
 
     const addChat = async () => {
-        const messagesRef = collection(db, "messages");
-        const chatRef = collection(db, "chats");
+        if (!user || !user.id) return;
+
+        // Check local state for duplicates (already there)
+        const alreadyExists = chatData.some(chat => chat.rId === user.id);
+        if (alreadyExists) {
+            setShowSearch(false);
+            setUser(null);
+            setVisible(false);
+            return;
+        }
+
         try {
+            const messagesRef = collection(db, "messages");
+            const chatRef = collection(db, "chats");
+
             const newMessageRef = doc(messagesRef);
             await setDoc(newMessageRef, {
                 createAt: serverTimestamp(),
                 messages: []
-            })
-            await updateDoc(doc(chatRef, user.id), {
-                chatsData: arrayUnion({
-                    messageId: newMessageRef.id,
-                    lastMessage: "",
-                    rId: userData.id,
-                    updateAt: Date.now(),
-                    messageSeen: true
-                })
-            })
-            await updateDoc(doc(chatRef, userData.id), {
-                chatsData: arrayUnion({
-                    messageId: newMessageRef.id,
-                    lastMessage: "",
-                    rId: user.id,
-                    updateAt: Date.now(),
-                    messageSeen: true
-                })
-            })
+            });
+
+            const newChatForOtherUser = {
+                messageId: newMessageRef.id,
+                lastMessage: "",
+                rId: userData.id,
+                updateAt: Date.now(),
+                messageSeen: true
+            };
+
+            const newChatForCurrentUser = {
+                messageId: newMessageRef.id,
+                lastMessage: "",
+                rId: user.id,
+                updateAt: Date.now(),
+                messageSeen: true
+            };
+
+            // Update other user's chatsData: fetch, remove duplicates, then update
+            const otherUserDocRef = doc(chatRef, user.id);
+            const otherUserDocSnap = await getDoc(otherUserDocRef);
+            let otherUserChats = otherUserDocSnap.exists() ? otherUserDocSnap.data().chatsData || [] : [];
+            otherUserChats = removeDuplicatesByRId(otherUserChats.filter(chat => chat.rId !== userData.id));
+            otherUserChats.push(newChatForOtherUser);
+            await updateDoc(otherUserDocRef, { chatsData: otherUserChats });
+
+            // Update current user's chatsData: fetch, remove duplicates, then update
+            const currentUserDocRef = doc(chatRef, userData.id);
+            const currentUserDocSnap = await getDoc(currentUserDocRef);
+            let currentUserChats = currentUserDocSnap.exists() ? currentUserDocSnap.data().chatsData || [] : [];
+            currentUserChats = removeDuplicatesByRId(currentUserChats.filter(chat => chat.rId !== user.id));
+            currentUserChats.push(newChatForCurrentUser);
+            await updateDoc(currentUserDocRef, { chatsData: currentUserChats });
+
+            // Update local chatData state safely
+            setChatData(prev => {
+                const exists = prev.some(chat => chat.rId === user.id);
+                if (!exists) {
+                    return [
+                        ...prev,
+                        {
+                            messageId: newMessageRef.id,
+                            lastMessage: "",
+                            rId: user.id,
+                            updateAt: Date.now(),
+                            messageSeen: true,
+                            userData: user
+                        }
+                    ];
+                }
+                return prev;
+            });
+
+            setUser(null);
+            setShowSearch(false);
+            setVisible(false);
+
         } catch (error) {
             toast.error(error.message);
             console.error(error);
         }
-    }
+    };
+
+
+
 
     const setChat = async (item) => {
         try {
@@ -145,10 +202,10 @@ const Chat = () => {
             const userChatsRef = doc(db, 'chats', userData.id);
             const userChatsSnapshot = await getDoc(userChatsRef);
             const userChatsData = userChatsSnapshot.data();
-            const chatIndex = userChatsData.chatsData.findIndex((c)=> c.messageId === item.messageId);
+            const chatIndex = userChatsData.chatsData.findIndex((c) => c.messageId === item.messageId);
             userChatsData.chatsData[chatIndex].messageSeen = true;
             await updateDoc(userChatsRef, {
-                chatsData:userChatsData.chatsData
+                chatsData: userChatsData.chatsData
             })
             setVisible(true);
         } catch (error) {
@@ -165,6 +222,7 @@ const Chat = () => {
     //         return unSub();
     //     }
     // }, [messageId])
+
     useEffect(() => {
         if (messageId) {
             const unSub = onSnapshot(doc(db, 'messages', messageId), (res) => {
@@ -181,18 +239,24 @@ const Chat = () => {
     }, [messageId]);
 
     const convertTimestamp = (timestamp) => {
-        let date = timestamp.toDate();
+        if (!timestamp) return "";
+        const date = new Date(timestamp);
         const hours = date.getHours();
-        const minutes = date.getMinutes();
-        if (hours > 12) {
-            return hours - 12 + ":" + minutes + " PM";
-        } else {
-            return hours + ":" + minutes + " AM";
-        }
-    }
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const hour12 = hours % 12 || 12;
+        return `${hour12}:${minutes} ${ampm}`;
+    };
 
 
-    // console.log(profileVisible);
+
+    // console.log(chatData);
+    const isUserOnline = (lastSeen) => {
+        if (!lastSeen) return false;
+        return (Date.now() - lastSeen) <= 70000; // 70 seconds = 1 min 10 sec
+    };
+
+
 
     return (
         <>
@@ -223,12 +287,12 @@ const Chat = () => {
                                     <input onChange={inputHandler} type="search" placeholder="search..." />
                                 </div>
 
-                                <div className={`left-bottom ${visible ? "invisible": "visible"}`}>
-                                    {showSearch && userData ? (
+                                <div className={`left-bottom ${visible ? "invisible" : "visible"}`}>
+                                    {showSearch && user && !chatData.some(chat => chat.rId === user.id) ? (
                                         <div onClick={addChat} className="single-chat-id">
                                             <CgProfile />
                                             <p>
-                                                <span>{user?.name}</span>
+                                                <span>{user.name}</span>
                                                 <span style={{ color: "white" }}>type message</span>
                                             </p>
                                         </div>
@@ -236,7 +300,8 @@ const Chat = () => {
                                         chatData.map((item, index) => (
                                             <div
                                                 onClick={() => setChat(item)}
-                                                className={`single-chat-id ${item.messageSeen === false && item.messageId !== messageId ? "border" : ""}`}
+                                                className={`single-chat-id ${item.messageSeen === false && item.messageId !== messageId ? "border" : ""
+                                                    }`}
                                                 key={index}
                                             >
                                                 <CgProfile />
@@ -248,20 +313,22 @@ const Chat = () => {
                                         ))
                                     )}
                                 </div>
+
                             </div>
                             <div className="chat-center">
                                 {
                                     chatUser ? (
                                         <div className="chat-center-inner">
                                             <div className="chat-center-header">
-                                                <div className="chat-center-header-right" style={{cursor: "pointer"}} onClick={()=> setProfileVisible(!profileVisible)}>
+                                                <div className="chat-center-header-right" style={{ cursor: "pointer" }} onClick={() => setProfileVisible(!profileVisible)}>
                                                     <CgProfile style={{ color: "black", fontSize: "20px" }} />
-                                                    <h3 style={{ color: "black"  }}>{chatUser?.userData?.name} {Date.now() - chatUser?.userData?.lastSeen <= 70000 ? <span className="green-dot"></span> : null}</h3>
+                                                    <h3 style={{ color: "black" }}>
+                                                        {chatUser?.userData?.name}
+                                                        {isUserOnline(chatUser?.userData?.lastSeen) && <span className="green-dot"></span>}
+                                                    </h3>
                                                 </div>
                                                 <IoIosInformationCircleOutline style={{ color: "black" }} />
                                             </div>
-                                            <hr style={{ height: "2px", backgroundColor: "black" }} />
-
                                             <div className="chat-messages">
                                                 {messages.map((msg, index) => (
                                                     <div key={index} className={msg.sId === userData.id ? "r-msg" : "s-msg"}>
@@ -296,17 +363,19 @@ const Chat = () => {
                                     )
                                 }
                             </div>
-                            <div className={`chat-right ${profileVisible ? "profile-visible": "profile-invisible"}`}>
+                            <div className={`chat-right ${profileVisible ? "profile-visible" : "profile-invisible"}`}>
                                 <div className="right-header">
                                     {/* {image ? (
                                         <img src={imageUrl} alt="profile" style={{ maxWidth: '50px' }} />
                                     ) : ( */}
-                                        <CgProfile size={50} style={{ color: "white" }} />
+                                    <CgProfile size={50} style={{ color: "white" }} />
                                     {/* )} */}
 
                                     <div className="chat-right-header">
-                                        <h4 style={{ color: "white" }}>{Date.now() - chatUser?.userData?.lastSeen <= 70000 ? <span className="green-dot"></span> : null} {chatUser?.userData?.name}</h4>
-                                    </div>
+                                        <h3 style={{ color: "white" }}>
+                                            {isUserOnline(chatUser?.userData?.lastSeen) && <span className="green-dot"></span>}
+                                            {chatUser?.userData?.name}
+                                        </h3>                                    </div>
                                     <p className="description" style={{ color: "white" }}>
                                         {chatUser?.userData?.bio}
                                     </p>

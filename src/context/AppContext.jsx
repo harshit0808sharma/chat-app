@@ -18,31 +18,51 @@ const AppContextProvider = (props) => {
     const [profileVisible, setProfileVisible] = useState(false);
 
 
+    // import { serverTimestamp } from "firebase/firestore";
+
     const loadUserData = async (uid) => {
         try {
             const userRef = doc(db, 'users', uid);
             const userSnap = await getDoc(userRef);
             const userData = userSnap.data();
             setUserData(userData);
+
             if (userData.name) {
                 navigate('/chat');
             } else {
                 navigate('/profile');
             }
+
+            // Use serverTimestamp() here instead of Date.now()
             await updateDoc(userRef, {
                 lastSeen: Date.now()
-            })
+            });
+
             setInterval(async () => {
                 if (auth.chatUser) {
+                    console.log("Updating lastSeen...");
                     await updateDoc(userRef, {
                         lastSeen: Date.now()
-                    })
+                    });
                 }
-            }, 60000)
+            }, 70000);
+
         } catch (error) {
             toast.error(error.message);
         }
     }
+
+    const removeDuplicatesByRId = (arr) => {
+        const seen = new Set();
+        return arr.filter(item => {
+            if (seen.has(item.rId)) {
+                return false;
+            }
+            seen.add(item.rId);
+            return true;
+        });
+    };
+
 
     useEffect(() => {
         if (userData) {
@@ -53,7 +73,6 @@ const AppContextProvider = (props) => {
 
                 const tempData = [];
 
-                // ✅ If chatsData is an array
                 if (Array.isArray(chatsData)) {
                     for (const item of chatsData) {
                         const userRef = doc(db, 'users', item.rId);
@@ -61,10 +80,7 @@ const AppContextProvider = (props) => {
                         const userData = userSnap.data();
                         tempData.push({ ...item, userData });
                     }
-                }
-
-                // ✅ If chatsData is an object (common in Firestore)
-                else if (typeof chatsData === 'object' && chatsData !== null) {
+                } else if (typeof chatsData === 'object' && chatsData !== null) {
                     for (const key in chatsData) {
                         const item = chatsData[key];
                         const userRef = doc(db, 'users', item.rId);
@@ -74,9 +90,12 @@ const AppContextProvider = (props) => {
                     }
                 }
 
-                // Set sorted chat data
-                setChatData(tempData.sort((a, b) => b.updateAT - a.updateAT));
+                // Remove duplicates by rId before setting state
+                const uniqueTempData = removeDuplicatesByRId(tempData);
+
+                setChatData(uniqueTempData.sort((a, b) => b.updateAt - a.updateAt));
             });
+
 
             return () => unSub();
         }
@@ -91,11 +110,13 @@ const AppContextProvider = (props) => {
         loadUserData,
         image,
         setImage,
-        messages,setMessages,
+        messages, setMessages,
         messageId, setMessageId,
         chatUser, setChatUser,
         visible, setVisible,
-        profileVisible, setProfileVisible
+        profileVisible, setProfileVisible,
+        removeDuplicatesByRId
+
 
     }
     return (

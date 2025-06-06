@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { IoChatboxEllipses } from "react-icons/io5";
 import { signup, login, resetPass } from "../config/firebase";
+import img from '../assets/images/chat.jpg'
 
 const Login = () => {
 
@@ -30,6 +31,7 @@ const Login = () => {
                         <h1 style={{color: "black"}}><IoChatboxEllipses /></h1>
                         <h2 style={{color: "black"}}>Chat App</h2>
                         <h3 style={{color: "black"}}>Hello, Friends!</h3>
+                        {/* <img src={img} alt="chat image" /> */}
                     </div>
                     <div className="login-right">
                         <h1 style={{color: "black"}}>{checklogin ? "Sign up" : "Login"}</h1>
