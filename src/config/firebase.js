@@ -4,12 +4,12 @@ import { getFirestore, setDoc, doc, query, where, getDocs, collection } from "fi
 import { toast } from "react-toastify";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAs_KPSpgesQI4t5egt7ikVW85IdhV3rlE",
-  authDomain: "chat-app-hs-a68fe.firebaseapp.com",
-  projectId: "chat-app-hs-a68fe",
-  storageBucket: "chat-app-hs-a68fe.appspot.com", // ✅ This is the correct domain
-  messagingSenderId: "170094407494",
-  appId: "1:170094407494:web:6b88136c9ddc54de627f47"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET, // ✅ This is the correct domain
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
